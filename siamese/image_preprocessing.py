@@ -16,8 +16,9 @@ class config():
     vmin, vmax = 0, 2.5
 
 def normalization(img):
-    new_img = (img - img.min()) / img.max()
-    return(new_img)
+    img = img - img.min()
+    img = img.max()
+    return img
 
 def color_balanced(img, vmin, vmax):
     new_img = (img - vmin) / (vmax - vmin)

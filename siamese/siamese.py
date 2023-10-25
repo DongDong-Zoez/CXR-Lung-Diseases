@@ -1,0 +1,59 @@
+import timm
+import torch
+import torch.nn as nn
+import torchxrayvision as xrv
+
+class Siamese(nn.Module):
+
+    def __init__(self, num_classes=3, model_name="tv_densenet121", pretrained=True, features_only=False):
+        super().__init__()
+
+        self.features_only = features_only
+        if features_only:
+            self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+            self.features = timm.create_model(model_name, num_classes=num_classes, pretrained=pretrained, features_only=features_only, out_indices=[-1])
+        else:
+            # self.features = timm.create_model(model_name, num_classes=0, pretrained=pretrained)
+            self.features = xrv.models.DenseNet(weights="densenet121-res224-nih", drop_rate=0.1)
+            self.features.op_threshs = None
+            self.features.classifier = nn.Identity() 
+        in_channels = self.__get_in_channels()*2
+        # self.classifier = nn.Sequential(
+        #     nn.Linear(in_channels, int(in_channels // 2)),
+        #     nn.BatchNorm1d(int(in_channels // 2)),
+        #     nn.CELU(),
+        #     nn.Linear(int(in_channels // 2), int(in_channels // 4)),
+        #     nn.BatchNorm1d(int(in_channels // 4)),
+        #     nn.CELU(),
+        #     nn.Linear(int(in_channels // 4), num_classes)
+        # )
+        self.classifier = nn.Sequential(
+            nn.Linear(in_channels, num_classes)
+        )
+
+    def __get_in_channels(self):
+        x = torch.randn(1,1,224,224)
+
+        if self.features_only:
+            return self.pool(self.features(x)[-1]).shape[1]
+        return self.features(x).shape[-1]
+
+    def forward(self, before_image, after_image):
+        if self.features_only:
+            before_feature_maps = self.features(before_image)[-1]
+            after_feature_maps = self.features(after_image)[-1]
+            before_features = self.pool(before_feature_maps)[...,0,0]
+            after_features = self.pool(after_feature_maps)[...,0,0]
+            return before_feature_maps, after_feature_maps
+        else:
+            before_features = self.features(before_image)
+            after_features = self.features(after_image)
+        # fusion_features = before_features - after_features
+        fusion_features = torch.cat([before_features, after_features], dim=1)
+        out = self.classifier(fusion_features)
+        return out
+    
+    def get_optim_params(self):
+        return [
+            {"params": self.classifier.parameters(), "lr": 1e-3},
+        ]
